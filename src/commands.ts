@@ -81,6 +81,11 @@ export async function handleCommand(
           handleCurrentListCommand(context)
         );
 
+      case "advance":
+        return requireAdmin(player, context, () =>
+          handleAdvanceCommand(args, context)
+        );
+
       default:
         return `Commande inconnue : $${command}. Utilise $help.`;
     }
@@ -147,6 +152,7 @@ function handleHelpCommand(context: CommandContext): string {
     "$history Pseudo : afficher l'historique d'un joueur.",
     "$setlist https://pokepast.es/xxxxxxxxxxxxxxxx : changer la liste active hors tournoi.",
     "$currentlist : afficher la liste active.",
+    "$advance Pseudo : générer manuellement une nouvelle team pour un joueur sur le round actif.",
     "",
     `Tournoi commencé : ${state.isStarted ? "oui" : "non"}`,
     `Round actif actuel : ${state.isStarted ? state.activeRound : "aucun"}`,
@@ -335,6 +341,38 @@ function handleCurrentListCommand(context: CommandContext): string {
     `Sets détectés : ${info.setCount}`,
     `Pokémon différents détectés : ${info.uniquePokemonCount}`,
     `Dernière mise à jour : ${info.updatedAt}`,
+  ].join("\n");
+}
+
+function handleAdvanceCommand(args: string[], context: CommandContext): string {
+  const state = context.storage.load();
+
+  if (!state.isStarted) {
+    return "Impossible d'avancer un joueur : le tournoi n'a pas encore commencé.";
+  }
+
+  const player = args.join(" ").trim();
+
+  if (!player) {
+    return "Utilisation : $advance Pseudo";
+  }
+
+  context.storage.resetPlayerForActiveRound(player);
+
+  const team = context.storage.getOrCreateTeam(player, () =>
+    generateTeam(context.listManager.getSets(), {
+      teamSize: context.teamSize,
+      sameName: context.sameName,
+      player,
+      round: state.activeRound,
+    })
+  );
+
+  return [
+    `Avancée manuelle enregistrée pour ${player}.`,
+    `Nouvelle team générée pour le round ${team.round} :`,
+    "",
+    team.rawTeam,
   ].join("\n");
 }
 
