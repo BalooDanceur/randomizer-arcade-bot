@@ -1,0 +1,59 @@
+Pikachu @ Light Ball
+Ability: Static
+Tera Type: Electric
+EVs: 252 Atk / 4 SpD / 252 Spe
+Jolly Nature
+- Volt Tackle
+- Knock Off
+- Fake Out
+- Extreme Speed
+
+Mew @ Leftovers
+Ability: Synchronize
+Tera Type: Fairy
+EVs: 252 HP / 252 Def / 4 SpD
+Bold Nature
+- Soft-Boiled
+- Will-O-Wisp
+- Knock Off
+- Spikes
+
+Nickname (Dragonite) @ Heavy-Duty Boots
+Ability: Multiscale
+Tera Type: Normal
+EVs: 252 Atk / 4 SpD / 252 Spe
+Adamant Nature
+- Extreme Speed
+- Dragon Dance
+- Earthquake
+- Roost
+
+Blissey @ Leftovers
+Ability: Natural Cure
+Tera Type: Steel
+EVs: 252 Def / 252 SpD
+Calm Nature
+- Seismic Toss
+- Soft-Boiled
+- Thunder Wave
+- Teleport
+
+Garchomp @ Rocky Helmet
+Ability: Rough Skin
+Tera Type: Water
+EVs: 252 HP / 252 Def / 4 Spe
+Impish Nature
+- Earthquake
+- Dragon Tail
+- Stealth Rock
+- Toxic
+
+Rotom-Wash @ Choice Scarf
+Ability: Levitate
+Tera Type: Steel
+EVs: 252 SpA / 4 SpD / 252 Spe
+Timid Nature
+- Volt Switch
+- Hydro Pump
+- Trick
+- Will-O-Wisp

@@ -1,0 +1,33 @@
+{
+  "name": "randomizer-arcade-bot",
+  "version": "1.0.0",
+  "description": "A randomizer bot for Pokemon Showdown",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "check": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BalooDanceur/randomizer-arcade-bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/BalooDanceur/randomizer-arcade-bot/issues"
+  },
+  "homepage": "https://github.com/BalooDanceur/randomizer-arcade-bot#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "@types/ws": "^8.18.1"
+  }
+}
