@@ -1,9 +1,13 @@
 import "dotenv/config";
 
+export type BotMode = "console" | "ps";
+
 export type BotConfig = {
   psUsername: string;
   psPassword: string;
   psServerUrl: string;
+  psRoom: string | null;
+  mode: BotMode;
   prefix: string;
   adminUsers: string[];
   teamSize: number;
@@ -22,6 +26,8 @@ export function loadConfig(): BotConfig {
     psPassword: readEnv("PS_PASSWORD"),
     psServerUrl:
       process.env.PS_SERVER_URL ?? "wss://sim3.psim.us/showdown/websocket",
+    psRoom: readOptionalEnv("PS_ROOM"),
+    mode: readBotModeEnv("BOT_MODE", "console"),
     prefix,
     adminUsers: readCsvEnv("ADMIN_USERS"),
     teamSize: readPositiveIntegerEnv("TEAM_SIZE", 6),
@@ -34,6 +40,16 @@ function readEnv(name: string): string {
 
   if (!value) {
     throw new Error(`Variable .env manquante : ${name}`);
+  }
+
+  return value;
+}
+
+function readOptionalEnv(name: string): string | null {
+  const value = process.env[name]?.trim();
+
+  if (!value) {
+    return null;
   }
 
   return value;
@@ -88,4 +104,20 @@ function readBooleanEnv(name: string, fallback: boolean): boolean {
   throw new Error(
     `Variable .env invalide : ${name} doit valoir true/false, on/off, yes/no ou 1/0.`
   );
+}
+
+function readBotModeEnv(name: string, fallback: BotMode): BotMode {
+  const raw = process.env[name];
+
+  if (!raw) {
+    return fallback;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+
+  if (normalized === "console" || normalized === "ps") {
+    return normalized;
+  }
+
+  throw new Error(`Variable .env invalide : ${name} doit valoir console ou ps.`);
 }

@@ -1,6 +1,7 @@
 import { loadConfig } from "./config.js";
 import { runConsoleBot } from "./console-runner.js";
 import { ActiveListManager } from "./list-manager.js";
+import { runPokemonShowdownClient } from "./ps-client.js";
 import { JsonStorage } from "./storage.js";
 
 const config = loadConfig();
@@ -23,10 +24,27 @@ const context = {
 const listInfo = listManager.getInfo();
 
 console.log(`Bot configuré : ${config.psUsername}`);
+console.log(`Mode : ${config.mode}`);
 console.log(`Préfixe : ${config.prefix}`);
 console.log(`Admins : ${config.adminUsers.join(", ") || "aucun"}`);
 console.log(`Sets chargés : ${listManager.getSets().length}`);
 console.log(`Source liste : ${listInfo.sourceUrl ?? listInfo.source}`);
+
+if (config.psRoom) {
+  console.log(`Room PS : ${config.psRoom}`);
+} else {
+  console.log("Room PS : aucune");
+}
+
 console.log("");
 
-await runConsoleBot(context);
+if (config.mode === "console") {
+  await runConsoleBot(context);
+} else {
+  await runPokemonShowdownClient({
+    serverUrl: config.psServerUrl,
+    username: config.psUsername,
+    password: config.psPassword,
+    room: config.psRoom,
+  });
+}
