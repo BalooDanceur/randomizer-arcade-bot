@@ -12,7 +12,7 @@ export async function runConsoleBot(context: CommandContext): Promise<void> {
   console.log("Exemples :");
   console.log("JoueurA: $team");
   console.log("BalooDanceur: $status");
-  console.log("BalooDanceur: $next");
+  console.log("BalooDanceur: $setlist https://pokepast.es/xxxxxxxxxxxxxxxx");
   console.log("");
   console.log("Tape exit pour quitter.");
   console.log("");
@@ -43,7 +43,9 @@ export async function runConsoleBot(context: CommandContext): Promise<void> {
       continue;
     }
 
-    const response = handleCommand(message, player, context);
+    const response = await handleCommand(message, player, context, {
+      isPrivateMessage: true,
+    });
 
     if (!response) {
       console.log("Aucune réponse.");

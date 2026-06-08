@@ -1,31 +1,32 @@
-import fs from "node:fs";
 import { loadConfig } from "./config.js";
 import { runConsoleBot } from "./console-runner.js";
-import { parseShowdownSets } from "./parser.js";
+import { ActiveListManager } from "./list-manager.js";
 import { JsonStorage } from "./storage.js";
 
 const config = loadConfig();
 
-const setsPath = "sets/sample-sets.txt";
+const fallbackSetsPath = "sets/sample-sets.txt";
+const currentListPath = "data/current-list.json";
 const statePath = "data/state.json";
 
-const rawSets = fs.readFileSync(setsPath, "utf8");
-const sets = parseShowdownSets(rawSets);
-
+const listManager = new ActiveListManager(currentListPath, fallbackSetsPath);
 const storage = new JsonStorage(statePath);
 
 const context = {
   storage,
-  sets,
+  listManager,
   admins: config.adminUsers,
   teamSize: config.teamSize,
   sameName: config.sameName,
 };
 
+const listInfo = listManager.getInfo();
+
 console.log(`Bot configuré : ${config.psUsername}`);
 console.log(`Préfixe : ${config.prefix}`);
 console.log(`Admins : ${config.adminUsers.join(", ") || "aucun"}`);
-console.log(`Sets chargés : ${sets.length}`);
+console.log(`Sets chargés : ${listManager.getSets().length}`);
+console.log(`Source liste : ${listInfo.sourceUrl ?? listInfo.source}`);
 console.log("");
 
 await runConsoleBot(context);

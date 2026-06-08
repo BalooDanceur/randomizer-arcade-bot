@@ -1,21 +1,27 @@
 import { exportHistoryToMarkdown } from "./exporter.js";
+import type { ActiveListManager } from "./list-manager.js";
 import { generateTeam } from "./randomizer.js";
 import { JsonStorage, normalizePlayerId } from "./storage.js";
-import type { PokemonSetBlock, TournamentState } from "./types.js";
+import type { TournamentState } from "./types.js";
 
 export type CommandContext = {
   storage: JsonStorage;
-  sets: PokemonSetBlock[];
+  listManager: ActiveListManager;
   admins: string[];
   teamSize: number;
   sameName: boolean;
 };
 
-export function handleCommand(
+export type CommandOptions = {
+  isPrivateMessage?: boolean;
+};
+
+export async function handleCommand(
   rawMessage: string,
   player: string,
-  context: CommandContext
-): string {
+  context: CommandContext,
+  options: CommandOptions = {}
+): Promise<string> {
   const trimmed = rawMessage.trim();
 
   if (!trimmed.startsWith("$")) {
@@ -24,47 +30,66 @@ export function handleCommand(
 
   const [commandName = "", ...args] = trimmed.slice(1).split(/\s+/);
   const command = commandName.toLowerCase();
+  const isPrivateMessage = options.isPrivateMessage ?? true;
 
-  switch (command) {
-    case "team":
-      return handleTeamCommand(player, context);
+  try {
+    switch (command) {
+      case "team":
+        return handleTeamCommand(player, context);
 
-    case "round":
-      return handleRoundCommand(context);
+      case "round":
+        return handleRoundCommand(context);
 
-    case "help":
-      return handleHelpCommand(context);
+      case "help":
+        return handleHelpCommand(context);
 
-    case "start":
-      return requireAdmin(player, context, () => handleStartCommand(context));
+      case "start":
+        return requireAdmin(player, context, () => handleStartCommand(context));
 
-    case "end":
-      return requireAdmin(player, context, () => handleEndCommand(context));
+      case "end":
+        return requireAdmin(player, context, () => handleEndCommand(context));
 
-    case "new":
-      return requireAdmin(player, context, () => handleNewCommand(context));
+      case "new":
+        return requireAdmin(player, context, () => handleNewCommand(context));
 
-    case "export":
-      return requireAdmin(player, context, () => handleExportCommand(context));
+      case "export":
+        return requireAdmin(player, context, () => handleExportCommand(context));
 
-    case "status":
-      return requireAdmin(player, context, () => handleStatusCommand(context));
+      case "status":
+        return requireAdmin(player, context, () => handleStatusCommand(context));
 
-    case "next":
-      return requireAdmin(player, context, () => handleNextCommand(context));
+      case "next":
+        return requireAdmin(player, context, () => handleNextCommand(context));
 
-    case "reset":
-      return requireAdmin(player, context, () =>
-        handleResetCommand(args, context)
-      );
+      case "reset":
+        return requireAdmin(player, context, () =>
+          handleResetCommand(args, context)
+        );
 
-    case "history":
-      return requireAdmin(player, context, () =>
-        handleHistoryCommand(args, context)
-      );
+      case "history":
+        return requireAdmin(player, context, () =>
+          handleHistoryCommand(args, context)
+        );
 
-    default:
-      return `Commande inconnue : $${command}. Utilise $help.`;
+      case "setlist":
+        return requireAdmin(player, context, () =>
+          handleSetListCommand(args, context, isPrivateMessage)
+        );
+
+      case "currentlist":
+        return requireAdmin(player, context, () =>
+          handleCurrentListCommand(context)
+        );
+
+      default:
+        return `Commande inconnue : $${command}. Utilise $help.`;
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      return `Erreur : ${error.message}`;
+    }
+
+    return "Erreur inconnue.";
   }
 }
 
@@ -76,7 +101,7 @@ function handleTeamCommand(player: string, context: CommandContext): string {
   }
 
   const team = context.storage.getOrCreateTeam(player, () =>
-    generateTeam(context.sets, {
+    generateTeam(context.listManager.getSets(), {
       teamSize: context.teamSize,
       sameName: context.sameName,
       player,
@@ -120,6 +145,8 @@ function handleHelpCommand(context: CommandContext): string {
     "$next : passer au round suivant.",
     "$reset Pseudo : reset la team d'un joueur pour le round actif.",
     "$history Pseudo : afficher l'historique d'un joueur.",
+    "$setlist https://pokepast.es/xxxxxxxxxxxxxxxx : changer la liste active hors tournoi.",
+    "$currentlist : afficher la liste active.",
     "",
     `Tournoi commencé : ${state.isStarted ? "oui" : "non"}`,
     `Round actif actuel : ${state.isStarted ? state.activeRound : "aucun"}`,
@@ -187,6 +214,7 @@ function handleStatusCommand(context: CommandContext): string {
     ? Object.keys(teamsThisRound).length
     : 0;
   const totalTeamsAllRounds = countAllTeams(state);
+  const listInfo = context.listManager.getInfo();
 
   return [
     "État du tournoi :",
@@ -196,7 +224,8 @@ function handleStatusCommand(context: CommandContext): string {
     `Dernier round enregistré : ${state.activeRound > 0 ? state.activeRound : "aucun"}`,
     `Teams générées ce round : ${totalTeamsThisRound}`,
     `Teams générées au total : ${totalTeamsAllRounds}`,
-    `Sets disponibles : ${context.sets.length}`,
+    `Sets disponibles : ${context.listManager.getSets().length}`,
+    `Source liste : ${formatListSource(listInfo)}`,
     `Taille des teams : ${context.teamSize}`,
     `Same name : ${context.sameName ? "on" : "off"}`,
   ].join("\n");
@@ -259,11 +288,61 @@ function handleHistoryCommand(args: string[], context: CommandContext): string {
     .join("\n\n---\n\n");
 }
 
-function requireAdmin(
+async function handleSetListCommand(
+  args: string[],
+  context: CommandContext,
+  isPrivateMessage: boolean
+): Promise<string> {
+  if (!isPrivateMessage) {
+    return "Commande refusée : $setlist doit être utilisée en MP avec le bot.";
+  }
+
+  const state = context.storage.load();
+
+  if (state.isStarted) {
+    return [
+      "Commande refusée : un tournoi est en cours.",
+      "Termine d'abord le tournoi avec $end, ou prépare un nouveau tournoi avec $new avant de changer la liste.",
+    ].join("\n");
+  }
+
+  const url = args[0];
+
+  if (!url) {
+    return "Utilisation : $setlist https://pokepast.es/xxxxxxxxxxxxxxxx";
+  }
+
+  const info = await context.listManager.setFromPokepaste(url, {
+    teamSize: context.teamSize,
+    sameName: context.sameName,
+  });
+
+  return [
+    "Liste active mise à jour.",
+    `Source : ${formatListSource(info)}`,
+    `Sets détectés : ${info.setCount}`,
+    `Pokémon différents détectés : ${info.uniquePokemonCount}`,
+    `Sauvegarde : data/current-list.json`,
+  ].join("\n");
+}
+
+function handleCurrentListCommand(context: CommandContext): string {
+  const info = context.listManager.getInfo();
+
+  return [
+    "Liste active :",
+    `Source : ${formatListSource(info)}`,
+    `Sets détectés : ${info.setCount}`,
+    `Pokémon différents détectés : ${info.uniquePokemonCount}`,
+    `Dernière mise à jour : ${info.updatedAt}`,
+  ].join("\n");
+}
+
+function requireAdmin<T>(
   player: string,
   context: CommandContext,
-  action: () => string
-): string {
+  action: () => T
+): T | string {
   const normalizedPlayer = normalizePlayerId(player);
   const normalizedAdmins = context.admins.map(normalizePlayerId);
 
@@ -279,4 +358,15 @@ function countAllTeams(state: TournamentState): number {
     (total, roundTeams) => total + Object.keys(roundTeams).length,
     0
   );
+}
+
+function formatListSource(info: {
+  source: string;
+  sourceUrl?: string;
+}): string {
+  if (info.sourceUrl) {
+    return `${info.source} (${info.sourceUrl})`;
+  }
+
+  return info.source;
 }
