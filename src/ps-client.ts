@@ -87,13 +87,12 @@ async function requestLoginAssertion(params: {
   challstr: string;
 }): Promise<string> {
   const body = new URLSearchParams({
-    act: "login",
     name: params.username,
     pass: params.password,
     challstr: params.challstr,
   });
 
-  const response = await fetch("https://play.pokemonshowdown.com/action.php", {
+  const response = await fetch("https://play.pokemonshowdown.com/api/login", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -110,8 +109,16 @@ async function requestLoginAssertion(params: {
 
   const parsed = JSON.parse(text.slice(jsonStart)) as LoginResponse;
 
-  if (!parsed.actionsuccess || !parsed.assertion) {
+  if (!parsed.assertion) {
     throw new Error(`Login refusé ou assertion absente : ${text}`);
+  }
+
+  if (parsed.assertion.startsWith(";;")) {
+    throw new Error(`Erreur login Pokémon Showdown : ${parsed.assertion}`);
+  }
+
+  if (parsed.curuser && parsed.curuser.loggedin === false) {
+    throw new Error(`Login refusé : nom d'utilisateur, mot de passe ou challstr incorrect.`);
   }
 
   return parsed.assertion;

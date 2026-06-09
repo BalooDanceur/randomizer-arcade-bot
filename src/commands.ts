@@ -41,7 +41,7 @@ export async function handleCommand(
         return handleRoundCommand(context);
 
       case "help":
-        return handleHelpCommand(context);
+        return handleHelpCommand(player, context);
 
       case "start":
         return requireAdmin(player, context, () => handleStartCommand(context));
@@ -131,34 +131,49 @@ function handleRoundCommand(context: CommandContext): string {
   return `Round actif : ${state.activeRound}`;
 }
 
-function handleHelpCommand(context: CommandContext): string {
+function handleHelpCommand(player: string, context: CommandContext): string {
   const state = context.storage.load();
+  const normalizedPlayer = normalizePlayerId(player);
+  const normalizedAdmins = context.admins.map(normalizePlayerId);
+  const isAdmin = normalizedAdmins.includes(normalizedPlayer);
 
-  return [
-    "Commandes Randomizer Arcade :",
+  const playerHelp = [
+    "Randomizer Arcade commands:",
     "",
-    "$team : recevoir ou revoir ta team pour le round actif.",
-    "$round : afficher le round actif.",
-    "$help : afficher cette aide.",
+    "Player commands:",
+    "$team : receive or review your team for the active round.",
+    "$round : show the active round.",
+    "$help : show this help message.",
+  ];
+
+  const adminHelp = [
     "",
-    "Commandes admin :",
-    "$start : lancer le tournoi au round 1.",
-    "$end : terminer le tournoi actuel sans supprimer l'historique.",
-    "$new : créer un nouveau tournoi vide et supprimer l'état courant.",
-    "$export : exporter l'historique complet en Markdown.",
-    "$status : afficher l'état du tournoi.",
-    "$next : passer au round suivant.",
-    "$reset Pseudo : reset la team d'un joueur pour le round actif.",
-    "$history Pseudo : afficher l'historique d'un joueur.",
-    "$setlist https://pokepast.es/xxxxxxxxxxxxxxxx : changer la liste active hors tournoi.",
-    "$currentlist : afficher la liste active.",
-    "$advance Pseudo : générer manuellement une nouvelle team pour un joueur sur le round actif.",
+    "Admin commands:",
+    "$setlist https://pokepast.es/xxxxxxxxxxxxxxxx : set the active list from a Poképaste, outside an active tournament.",
+    "$currentlist : show the active list.",
+    "$start : start the tournament and open round 1.",
+    "$next : move to the next round.",
+    "$advance Pseudo : manually generate a new team for a player in the active round.",
+    "$reset Pseudo : reset a player's team for the active round.",
+    "$status : show the tournament status.",
+    "$history Pseudo : show a player's history.",
+    "$export : export the full history as Markdown.",
+    "$end : end the current tournament without deleting history.",
+    "$new : prepare a new empty tournament and delete the current state.",
+  ];
+
+  const statusInfo = [
     "",
-    `Tournoi commencé : ${state.isStarted ? "oui" : "non"}`,
-    `Round actif actuel : ${state.isStarted ? state.activeRound : "aucun"}`,
-    `Taille des teams : ${context.teamSize}`,
-    `Same name : ${context.sameName ? "on" : "off"}`,
-  ].join("\n");
+    "Current settings:",
+    `Tournament started: ${state.isStarted ? "yes" : "no"}`,
+    `Active round: ${state.isStarted ? state.activeRound : "none"}`,
+    `Team size: ${context.teamSize}`,
+    `Same name: ${context.sameName ? "on" : "off"}`,
+  ];
+
+  return isAdmin
+    ? [...playerHelp, ...adminHelp, ...statusInfo].join("\n")
+    : playerHelp.join("\n");
 }
 
 function handleStartCommand(context: CommandContext): string {
