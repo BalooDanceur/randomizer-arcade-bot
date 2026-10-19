@@ -1,10 +1,16 @@
+import { TournamentAuto } from "./tournament-auto.js";
+import { BattleWatcher } from "./battle-watcher.js";
 import WebSocket from "ws";
+import { handleCommand, formatTeam, type CommandContext } from "./commands.js";
+import { normalizePlayerId } from "./storage.js";
+import { parseIncomingCommands, responseDestination, buildOutgoingMessages } from "./ps-messages.js";
 
 export type PsClientOptions = {
   serverUrl: string;
   username: string;
   password: string;
   room: string | null;
+  context: CommandContext;
 };
 
 type LoginResponse = {
@@ -22,13 +28,80 @@ export async function runPokemonShowdownClient(options: PsClientOptions): Promis
 
   const socket = new WebSocket(options.serverUrl);
 
+  let loggedIn = false;
+  let commands = Promise.resolve();
+  const outgoing: string[] = [];
+  const sender = setInterval(() => {
+    if (socket.readyState === WebSocket.OPEN && outgoing.length) socket.send(outgoing.shift()!);
+  }, 1000);
+
+  function reply(destination: { room?: string; user?: string }, response: string, allowCode = false): void {
+    outgoing.push(...buildOutgoingMessages(destination, response, allowCode));
+  }
+
+  const watcher = new BattleWatcher(
+    wire => outgoing.push(wire),
+    text => {
+      console.log(`[Surveillance → BalooDanceur] ${text}`);
+      reply({user: normalizePlayerId("BalooDanceur")}, text);
+    },
+  );
+  const automatic = new TournamentAuto({
+    room: options.room,
+    context: options.context,
+    sendWire: wire => outgoing.push(wire),
+    notifyError: text => reply({user: normalizePlayerId("BalooDanceur")}, text),
+    watch: (target, state) => { watcher.watch(target, state); },
+    unwatch: target => { watcher.unwatch(target); },
+    renderTeam: team => formatTeam(team, options.context),
+    sendTeam: (player, response) => reply({user: normalizePlayerId(player)}, response, true),
+  });
+  const context: CommandContext = {
+    ...options.context,
+    sendPrivateTeam: (player, response) => reply({user: normalizePlayerId(player)}, response, true),
+    autoCommand: action => automatic.command(action),
+    watchBattle: target => watcher.watch(target, options.context.storage.snapshotForWatch()),
+    unwatchBattle: target => watcher.unwatch(target),
+  };
+
   socket.on("open", () => {
     console.log("WebSocket ouvert. Attente du challenge de login...");
   });
 
   socket.on("message", async data => {
     const message = data.toString();
-    logIncomingMessage(message);
+    for (const line of message.split("\n")) {
+      if (line.startsWith("|updateuser|")) {
+        const fields = line.split("|");
+        if (fields[3] === "1" && normalizePlayerId(fields[2] ?? "") === normalizePlayerId(options.username)) {
+          if (!loggedIn) {
+            loggedIn = true;
+            console.log(`Connecté sous ${options.username}.`);
+            if (options.room) sendGlobal(socket, `/join ${options.room}`);
+          }
+        }
+      }
+      if (line === "|init|chat") console.log("Salon rejoint.");
+      if (line.startsWith("|error|") || line.startsWith("|popup|") || line.startsWith("|noinit|")) console.warn(line);
+    }
+    for (const line of message.split("\n")) {
+      if (line.startsWith("|pm|") && /\|\/error\b/.test(line)) {
+        console.warn(`[Erreur MP Showdown] ${line}`);
+      }
+    }
+    if (loggedIn) {
+      watcher.processPacket(message);
+      commands = commands.then(() => { automatic.processPacket(message); })
+        .catch(error => console.error("Erreur tournoi automatique :", error));
+      for (const incoming of parseIncomingCommands(message, options.username, options.room)) {
+        commands = commands.then(async () => {
+          const response = await handleCommand(incoming.text, incoming.player, context, {
+            isPrivateMessage: incoming.isPrivateMessage,
+          });
+          if (response) reply(responseDestination(incoming), response, /^\$(?:team|advance)(?:\s|$)/i.test(incoming.text.trim()));
+        }).catch(error => console.error("Erreur commande Showdown :", error));
+      }
+    }
 
     const challstr = extractChallstr(message);
 
@@ -46,10 +119,6 @@ export async function runPokemonShowdownClient(options: PsClientOptions): Promis
       sendGlobal(socket, `/trn ${options.username},0,${assertion}`);
       console.log(`Tentative de login envoyée pour ${options.username}.`);
 
-      if (options.room) {
-        sendGlobal(socket, `/join ${options.room}`);
-        console.log(`Demande de join room envoyée : ${options.room}`);
-      }
     } catch (error) {
       console.error("Erreur pendant le login Showdown :");
       console.error(error);
@@ -63,6 +132,8 @@ export async function runPokemonShowdownClient(options: PsClientOptions): Promis
 
   await new Promise<void>(resolve => {
     socket.on("close", (code, reason) => {
+      clearInterval(sender);
+      outgoing.length = 0;
       console.log(`WebSocket fermé. Code=${code} Raison=${reason.toString() || "aucune"}`);
       resolve();
     });
@@ -131,10 +202,4 @@ function sendGlobal(socket: WebSocket, command: string): void {
   }
 
   socket.send(`|${command}`);
-}
-
-function logIncomingMessage(message: string): void {
-  console.log("----- Message PS entrant -----");
-  console.log(message);
-  console.log("-----------------------------");
 }

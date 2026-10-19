@@ -46,5 +46,6 @@ if (config.mode === "console") {
     username: config.psUsername,
     password: config.psPassword,
     room: config.psRoom,
+    context,
   });
 }

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "check": "tsc --noEmit",
-    "console": "BOT_MODE=console tsx src/index.ts"
+    "console": "BOT_MODE=console tsx src/index.ts",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "repository": {
     "type": "git",

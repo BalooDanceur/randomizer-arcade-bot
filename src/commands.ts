@@ -1,8 +1,9 @@
 import { exportHistoryToMarkdown } from "./exporter.js";
 import type { ActiveListManager } from "./list-manager.js";
+import { createTeamPaste } from "./pokepaste.js";
 import { generateTeam } from "./randomizer.js";
 import { JsonStorage, normalizePlayerId } from "./storage.js";
-import type { TournamentState } from "./types.js";
+import type { GeneratedTeam, TournamentState } from "./types.js";
 
 export type CommandContext = {
   storage: JsonStorage;
@@ -10,6 +11,10 @@ export type CommandContext = {
   admins: string[];
   teamSize: number;
   sameName: boolean;
+  sendPrivateTeam?: (player: string, response: string) => void;
+  autoCommand?: (action: string) => string;
+  watchBattle?: (target: string) => string;
+  unwatchBattle?: (target: string) => string;
 };
 
 export type CommandOptions = {
@@ -33,56 +38,108 @@ export async function handleCommand(
   const isPrivateMessage = options.isPrivateMessage ?? true;
 
   try {
+    if (context.storage.load().permanentAuto?.enabled && ["start", "next"].includes(command)) {
+      return await requireAdmin(player, context, () => "Mode permanent activé : utilise $auto permanent off avant de démarrer un tournoi manuel.");
+    }
+    if (context.storage.load().automation?.enabled && ["start", "next", "end", "new", "setlist"].includes(command)) {
+      return await requireAdmin(player, context, () => "Commande bloquée pendant le mode automatique. Utilise $auto off pour le désactiver ; $next reste réservé au mode manuel.");
+    }
+    if (command === "next" && context.storage.load().automation && context.storage.load().automation?.phase !== 'ended') {
+      return await requireAdmin(player, context, () => "Progression individuelle : $next n’est pas utilisable dans cette session automatique. Termine la session puis utilise $new pour revenir au mode manuel.");
+    }
     switch (command) {
+      case "auto":
+        return await requireAdmin(player, context, () => {
+          if (!isPrivateMessage) return "$auto doit être utilisée en MP avec le bot.";
+          if (!context.autoCommand) return "Mode automatique disponible uniquement sur Showdown.";
+          if (args[0]?.toLowerCase() === "permanent") {
+            if (args.length !== 2 || !["on", "off"].includes(args[1]!.toLowerCase())) return "Utilisation : $auto permanent on|off";
+            return context.autoCommand(`permanent ${args[1]!.toLowerCase()}`);
+          }
+          if (args.length > 1) return "Utilisation : $auto on|off|resume|status ou $auto permanent on|off";
+          return context.autoCommand(args[0] ?? "status");
+        });
+      case "watch":
+      case "unwatch":
+        return await requireAdmin(player, context, () => {
+          if (!args[0] || args.length !== 1) return `Utilisation : $${command} LIEN_DU_COMBAT`;
+          const action = command === "watch" ? context.watchBattle : context.unwatchBattle;
+          if (!action) return "Surveillance disponible uniquement en mode Showdown.";
+          return action(args[0]);
+        });
+
+      case "resend":
+        return await requireAdmin(player, context, async () => {
+          if (!isPrivateMessage) return "$resend doit être utilisée en MP avec le bot.";
+          const target = args.join(" ").trim(), id = normalizePlayerId(target);
+          if (!id || target.length > 100 || /[,|\r\n]/.test(target)) return "Utilisation : $resend Pseudo";
+          if (!context.sendPrivateTeam) return "Renvoi privé disponible uniquement sur Showdown.";
+          const state = context.storage.load();
+          if (!state.isStarted) return "Aucun tournoi en cours.";
+          const round = context.storage.getRoundForPlayer(target);
+          const team = state.teamsByRound[String(round)]?.[id];
+          if (!team) return `Aucune équipe attribuée à ${target} pour le round ${round}. Aucun nouveau tirage effectué.`;
+          const response = await formatTeam(team, context);
+          // Formatting can involve a network request: don't send a stale draw.
+          const latest = context.storage.load();
+          if (!latest.isStarted || latest.automation?.id !== state.automation?.id || context.storage.getRoundForPlayer(target) !== round ||
+              latest.teamsByRound[String(round)]?.[id]?.createdAt !== team.createdAt ||
+              latest.teamsByRound[String(round)]?.[id]?.rawTeam !== team.rawTeam) {
+            return "Renvoi annulé : la session ou l’équipe a changé. Réessaie $resend.";
+          }
+          context.sendPrivateTeam(id, `Voici ta team pour le round ${round} :\n${response}`);
+          return `Renvoi de l’équipe du round ${round} à ${target} mis en file d’envoi en MP.`;
+        });
+
       case "team":
-        return handleTeamCommand(player, context);
+        return await handleTeamCommand(player, context);
 
       case "round":
-        return handleRoundCommand(context);
+        return handleRoundCommand(player, context);
 
       case "help":
         return handleHelpCommand(player, context);
 
       case "start":
-        return requireAdmin(player, context, () => handleStartCommand(context));
+        return await requireAdmin(player, context, () => handleStartCommand(context));
 
       case "end":
-        return requireAdmin(player, context, () => handleEndCommand(context));
+        return await requireAdmin(player, context, () => handleEndCommand(context));
 
       case "new":
-        return requireAdmin(player, context, () => handleNewCommand(context));
+        return await requireAdmin(player, context, () => handleNewCommand(context));
 
       case "export":
-        return requireAdmin(player, context, () => handleExportCommand(context));
+        return await requireAdmin(player, context, () => handleExportCommand(context));
 
       case "status":
-        return requireAdmin(player, context, () => handleStatusCommand(context));
+        return await requireAdmin(player, context, () => handleStatusCommand(context));
 
       case "next":
-        return requireAdmin(player, context, () => handleNextCommand(context));
+        return await requireAdmin(player, context, () => handleNextCommand(context));
 
       case "reset":
-        return requireAdmin(player, context, () =>
+        return await requireAdmin(player, context, () =>
           handleResetCommand(args, context)
         );
 
       case "history":
-        return requireAdmin(player, context, () =>
+        return await requireAdmin(player, context, () =>
           handleHistoryCommand(args, context)
         );
 
       case "setlist":
-        return requireAdmin(player, context, () =>
+        return await requireAdmin(player, context, () =>
           handleSetListCommand(args, context, isPrivateMessage)
         );
 
       case "currentlist":
-        return requireAdmin(player, context, () =>
+        return await requireAdmin(player, context, () =>
           handleCurrentListCommand(context)
         );
 
       case "advance":
-        return requireAdmin(player, context, () =>
+        return await requireAdmin(player, context, () =>
           handleAdvanceCommand(args, context)
         );
 
@@ -98,7 +155,7 @@ export async function handleCommand(
   }
 }
 
-function handleTeamCommand(player: string, context: CommandContext): string {
+async function handleTeamCommand(player: string, context: CommandContext): Promise<string> {
   const state = context.storage.load();
 
   if (!state.isStarted) {
@@ -110,25 +167,25 @@ function handleTeamCommand(player: string, context: CommandContext): string {
       teamSize: context.teamSize,
       sameName: context.sameName,
       player,
-      round: state.activeRound,
+      round: context.storage.getRoundForPlayer(player),
     })
   );
 
   return [
     `Voici ta team pour le round ${team.round} :`,
     "",
-    team.rawTeam,
+    await formatTeam(team, context),
   ].join("\n");
 }
 
-function handleRoundCommand(context: CommandContext): string {
+function handleRoundCommand(player: string, context: CommandContext): string {
   const state = context.storage.load();
 
   if (!state.isStarted) {
     return "Le tournoi n'a pas encore commencé.";
   }
 
-  return `Round actif : ${state.activeRound}`;
+  return `Round actif : ${context.storage.getRoundForPlayer(player)}`;
 }
 
 function handleHelpCommand(player: string, context: CommandContext): string {
@@ -149,11 +206,16 @@ function handleHelpCommand(player: string, context: CommandContext): string {
   const adminHelp = [
     "",
     "Admin commands:",
+    "$auto permanent on|off : enable or disable automatic arming for subsequent Single Elimination tournaments named exactly RandArcade in this room.",
+    "$auto on|off|resume|status : arm, pause or inspect automatic Single Elimination tournament tracking (PM only).",
+    "$watch LIEN_DU_COMBAT : monitor visible Pokémon and moves using teams assigned in the active round.",
+    "$unwatch LIEN_DU_COMBAT : stop monitoring a battle.",
     "$setlist https://pokepast.es/xxxxxxxxxxxxxxxx : set the active list from a Poképaste, outside an active tournament.",
     "$currentlist : show the active list.",
-    "$start : start the tournament and open round 1.",
+    "$start : start a fresh tournament at round 1; use $new first if history exists.",
     "$next : move to the next round.",
     "$advance Pseudo : manually generate a new team for a player in the active round.",
+    "$resend Pseudo : privately resend the assigned team directly to the player without showing it to the admin (PM only).",
     "$reset Pseudo : reset a player's team for the active round.",
     "$status : show the tournament status.",
     "$history Pseudo : show a player's history.",
@@ -200,7 +262,7 @@ function handleEndCommand(context: CommandContext): string {
   return [
     "Tournoi terminé.",
     `Dernier round joué : ${after.activeRound}`,
-    "L'historique est conservé. Les joueurs ne peuvent plus demander de team tant qu'un admin ne relance pas avec $start.",
+    "L'historique est conservé. Utilise $export pour le sauvegarder, puis $new et $start pour lancer un nouveau tournoi.",
   ].join("\n");
 }
 
@@ -239,9 +301,10 @@ function handleStatusCommand(context: CommandContext): string {
 
   return [
     "État du tournoi :",
+    ...(state.automation ? [`Mode automatique : ${state.automation.enabled ? "actif" : "inactif"} (${state.automation.phase})`, "Rounds individuels : utilise $round en MP pour connaître ton tirage."] : []),
     "",
     `Tournoi commencé : ${state.isStarted ? "oui" : "non"}`,
-    `Round actif : ${state.isStarted ? state.activeRound : "aucun"}`,
+    `${state.automation ? "Dernier round préparé" : "Round actif"} : ${state.isStarted ? state.activeRound : "aucun"}`,
     `Dernier round enregistré : ${state.activeRound > 0 ? state.activeRound : "aucun"}`,
     `Teams générées ce round : ${totalTeamsThisRound}`,
     `Teams générées au total : ${totalTeamsAllRounds}`,
@@ -359,7 +422,7 @@ function handleCurrentListCommand(context: CommandContext): string {
   ].join("\n");
 }
 
-function handleAdvanceCommand(args: string[], context: CommandContext): string {
+async function handleAdvanceCommand(args: string[], context: CommandContext): Promise<string> {
   const state = context.storage.load();
 
   if (!state.isStarted) {
@@ -379,7 +442,7 @@ function handleAdvanceCommand(args: string[], context: CommandContext): string {
       teamSize: context.teamSize,
       sameName: context.sameName,
       player,
-      round: state.activeRound,
+      round: context.storage.getRoundForPlayer(player),
     })
   );
 
@@ -387,7 +450,7 @@ function handleAdvanceCommand(args: string[], context: CommandContext): string {
     `Avancée manuelle enregistrée pour ${player}.`,
     `Nouvelle team générée pour le round ${team.round} :`,
     "",
-    team.rawTeam,
+    await formatTeam(team, context),
   ].join("\n");
 }
 
@@ -422,4 +485,15 @@ function formatListSource(info: {
   }
 
   return info.source;
+}
+
+export async function formatTeam(team: GeneratedTeam, context: CommandContext): Promise<string> {
+  if (team.pasteUrl) return `${team.pasteUrl}\n!code ${team.rawTeam}`;
+  try {
+    const url = await createTeamPaste(team.rawTeam, team.round);
+    context.storage.saveTeamPaste(team.player, team.round, team.rawTeam, url);
+    return `${url}\n!code ${team.rawTeam}`;
+  } catch {
+    return ["Poképaste indisponible : voici l’équipe en texte.", "", `!code ${team.rawTeam}`].join("\n");
+  }
 }

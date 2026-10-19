@@ -1,9 +1,5 @@
 node_modules/
 .env
-data/state.json
+data/
 dist/
-
 exports/
-
-exports/
-data/current-list.json
